@@ -37,7 +37,7 @@ class _YuXinAppState extends State<YuXinApp> {
       animation: _controller,
       builder: (BuildContext context, _) {
         return MaterialApp(
-          title: '愈芯 AI',
+          title: '愈心 AI',
           debugShowCheckedModeBanner: false,
           theme: buildYuXinTheme(),
           home: ShellPage(controller: _controller),

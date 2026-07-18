@@ -1,16 +1,259 @@
-# learn
+# 愈心 AI
 
-A new Flutter project.
+愈心 AI 是一个用 Flutter 做的情绪陪伴应用原型，重点不是“功能堆满”，而是把陪伴感、情绪记录、急救工具和本地隐私这几件事先做顺。
 
-## Getting Started
+当前版本已经包含：
 
-This project is a starting point for a Flutter application.
+- 多模式陪伴聊天：`通用陪伴`、`青少年`、`职场`、`深夜树洞`
+- 情绪打卡：6 种情绪状态，支持附加备注
+- 情绪急救包：呼吸、落地法、睡前缓和、自我安抚文案
+- 回复偏好设置：可以控制它更安静还是更给建议
+- 提醒机制：当前是应用内提醒逻辑
+- 更像真人的记忆面板：记录近期高频压力点、偏好、缓和线索
+- 本地历史记录：会话、多会话切换、删除、清空
+- 危机词识别与安全提醒
+- 大模型接口接入能力，未配置时自动走本地兜底回复
 
-A few resources to get you started if this is your first Flutter project:
+## 项目定位
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+这个项目更像一个“情绪陪伴产品原型”，而不是通用聊天壳子。  
+目标是先把下面几件事做扎实：
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- 打开就能聊
+- 不知道怎么开口时也能开始
+- 能记住一点近期状态
+- 遇到情绪上头时能立刻给一个低门槛工具
+- 数据尽量留在本地
+
+## 技术栈
+
+- Flutter
+- Dart
+- `http`：调用大模型接口
+- `flutter_secure_storage`：本地加密存储
+
+## 目录结构
+
+```text
+lib/
+  app.dart                     应用入口壳
+  main.dart                    Flutter 启动入口
+  controllers/
+    app_controller.dart        全局状态与业务编排
+  models/
+    chat_models.dart           聊天、打卡、提醒、偏好、记忆等数据模型
+  pages/
+    shell_page.dart            主界面，包含首页/聊天/急救包/记忆
+  services/
+    ai_config.dart             大模型接口配置
+    ai_config_local.example.dart
+    companion_service.dart     陪伴回复生成
+    crisis_support_service.dart 危机词识别与安全提醒
+    local_store_service.dart   本地加密存储
+    prompt_library.dart        早期提示词辅助代码
+  ui/
+    theme.dart                 全局主题
+  widgets/
+    breathing_avatar.dart      首页动态心形头像
+```
+
+## 功能说明
+
+### 1. 多模式聊天
+
+应用内有四种陪伴模式：
+
+- `通用陪伴`：适合日常情绪、压力、委屈、想倾诉的时候
+- `青少年`：偏学习压力、朋友关系、成长烦恼
+- `职场`：偏工作消耗、会议、同事、加班内耗
+- `深夜树洞`：偏失眠、孤独、夜间情绪放大
+
+每个模式都支持新建会话，不会把所有内容挤进同一条聊天里。
+
+### 2. 情绪打卡
+
+首页可以直接做当天情绪打卡，当前状态包括：
+
+- 平静
+- 疲惫
+- 焦虑
+- 压住了
+- 低落
+- 有点希望
+
+每次打卡都可以补一句备注。  
+打卡记录会保存在本地，用于：
+
+- 首页展示近期情绪轨迹
+- 作为大模型上下文的一部分
+- 让“记忆面板”更像是在持续认识同一个人
+
+### 3. 情绪急救包
+
+不是所有时候都适合直接聊天，所以加了几个可立即使用的微工具：
+
+- `30 秒缓下来`
+- `5-4-3-2-1 落地法`
+- `睡前慢一点`
+- `给自己一句稳住的话`
+
+每个工具都可以在弹层中查看步骤，并且能一键把当前状态带回聊天页。
+
+### 4. 回复偏好设置
+
+可以在弹层里调整陪伴风格，目前支持：
+
+- 先接住情绪
+- 给一点建议
+- 回答短一点
+- 别太说教
+- 深夜更轻一点
+
+这些偏好会影响：
+
+- 本地兜底回复逻辑
+- 大模型调用时的系统提示词
+
+### 5. 提醒机制
+
+当前版本的提醒不是系统级推送，而是“应用内提醒逻辑”：
+
+- 可以开启/关闭每日提醒
+- 可以设置提醒时间
+- 可以设置仅工作日提醒
+- 可以切换提醒文案是否更温柔
+
+当用户在设定时间附近打开应用时，会看到提醒提示。
+
+### 6. 更像真人的记忆面板
+
+记忆面板会展示近期整理出来的线索，包括：
+
+- 高频压力点
+- 缓和线索
+- 陪伴偏好
+- 最近情绪摘要
+
+用户也可以手动删除其中任意一项。
+
+### 7. 危机词识别
+
+当输入命中危机相关关键词时，应用会：
+
+- 中断普通陪伴回复流程
+- 直接显示安全提醒
+- 展示真人支持建议
+
+这部分逻辑在 [lib/services/crisis_support_service.dart](/abs/path/D:/develop_0909/learn/lib/services/crisis_support_service.dart)。
+
+## 数据存储
+
+当前数据默认通过 `flutter_secure_storage` 保存在本地加密存储中。
+
+会保存的内容包括：
+
+- 聊天会话
+- 情绪打卡记录
+- 回复偏好
+- 提醒设置
+- 用户记忆摘要
+
+当前版本没有云同步，也不会主动上传聊天历史。
+
+## 大模型配置
+
+项目已经预留了大模型接口配置，但如果你还没配置，也能直接运行，应用会自动走本地兜底回复。
+
+### 配置文件
+
+参考文件：
+
+[lib/services/ai_config_local.example.dart](/abs/path/D:/develop_0909/learn/lib/services/ai_config_local.example.dart)
+
+你需要自己创建：
+
+`lib/services/ai_config_local.dart`
+
+内容格式如下：
+
+```dart
+class AiConfigLocal {
+  const AiConfigLocal._();
+
+  static const String apiKey = 'YOUR_API_KEY';
+}
+```
+
+### 当前默认接口
+
+[lib/services/ai_config.dart](/abs/path/D:/develop_0909/learn/lib/services/ai_config.dart) 中当前写的是：
+
+- `apiBaseUrl`: `https://chat.ecnu.edu.cn/open/api/v1`
+- `chatCompletionsPath`: `/chat/completions`
+- `model`: `ecnu-plus`
+
+如果你后续要切换服务商，改这里即可。
+
+## 本地运行
+
+### 1. 安装依赖
+
+```bash
+flutter pub get
+```
+
+### 2. 配置大模型 Key
+
+如果要接真实模型：
+
+- 复制 `lib/services/ai_config_local.example.dart`
+- 新建 `lib/services/ai_config_local.dart`
+- 填入可用的 `apiKey`
+
+如果不配置，也能运行，只是会使用本地兜底回复。
+
+### 3. 启动应用
+
+```bash
+flutter run
+```
+
+## 当前已知情况
+
+这个仓库目前是一个持续迭代中的产品原型，不是已经收口的正式商用版本。
+
+已完成的方向：
+
+- 主界面产品化
+- 多会话
+- 情绪打卡
+- 急救包
+- 记忆面板
+- 回复偏好
+- 应用内提醒
+
+还值得继续补的方向：
+
+- 系统级本地通知
+- 会话搜索
+- 收藏回复
+- 数据导出
+- 更完整的 API 配置页
+- 更稳定的危机识别策略
+- 更细一点的情绪趋势可视化
+
+## 注意
+
+- 当前 README 描述基于仓库内现有代码，不代表所有交互都已经打磨到最终状态。
+- 项目里个别文件曾经出现过中文编码残留问题，如果你看到局部乱码，优先检查文件编码是否被编辑器改乱。
+- 当前提醒功能不是系统通知，而是应用内逻辑提醒，这一点和真正的推送提醒不是一回事。
+
+## 后续建议
+
+如果要继续把它做得更像完整产品，推荐优先补这三块：
+
+1. 系统级通知提醒
+2. API 配置页
+3. 记忆与历史搜索
+
+这样会从“能跑的原型”更进一步，变成“更完整、可持续迭代的应用骨架”。
