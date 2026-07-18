@@ -25,37 +25,38 @@ class CompanionService {
     required String userInput,
     required List<ChatMessage> recentMessages,
     required UserMemory memory,
+    required ResponsePreference responsePreference,
+    MoodEntry? latestMoodEntry,
   }) async {
-    final UserMemory nextMemory = _updateMemory(memory, userInput);
+    final UserMemory nextMemory = _updateMemory(memory, userInput, latestMoodEntry);
 
     if (!AiConfig.isConfigured) {
       return CompanionReply(
-        text: _offlineReply(mode: mode, userInput: userInput),
+        text: _offlineReply(
+          mode: mode,
+          userInput: userInput,
+          responsePreference: responsePreference,
+          latestMoodEntry: latestMoodEntry,
+        ),
         memory: nextMemory,
       );
     }
 
     try {
-      final Uri uri =
-          Uri.parse('${AiConfig.apiBaseUrl}${AiConfig.chatCompletionsPath}');
-
+      final Uri uri = Uri.parse('${AiConfig.apiBaseUrl}${AiConfig.chatCompletionsPath}');
       final String systemPrompt = _buildSystemPrompt(
         mode: mode,
         memory: nextMemory,
         recentMessages: recentMessages,
+        responsePreference: responsePreference,
+        latestMoodEntry: latestMoodEntry,
       );
 
       final Map<String, dynamic> payload = <String, dynamic>{
         'model': AiConfig.model,
         'messages': <Map<String, String>>[
-          <String, String>{
-            'role': 'system',
-            'content': systemPrompt,
-          },
-          <String, String>{
-            'role': 'user',
-            'content': userInput,
-          },
+          <String, String>{'role': 'system', 'content': systemPrompt},
+          <String, String>{'role': 'user', 'content': userInput},
         ],
         'thinking': <String, String>{
           'type': AiConfig.enableThinking ? 'enabled' : 'disabled',
@@ -65,7 +66,7 @@ class CompanionService {
         'stream': false,
       };
 
-      debugPrint('ECNU chat payload: ${jsonEncode(payload)}');
+      debugPrint('YuXin payload: ${jsonEncode(payload)}');
       final http.Response response = await _client
           .post(
             uri,
@@ -77,24 +78,27 @@ class CompanionService {
           )
           .timeout(const Duration(seconds: 20));
 
-      debugPrint('ECNU chat status: ${response.statusCode}');
-      debugPrint('ECNU chat body: ${response.body}');
-
+      debugPrint('YuXin status: ${response.statusCode}');
       final String text = _extractReplyText(response);
       if (response.statusCode == 200 && text.isNotEmpty) {
         return CompanionReply(
-          text: _trimReply(text),
+          text: _trimReply(text, responsePreference),
           memory: nextMemory,
         );
       }
     } on TimeoutException {
-      debugPrint('ECNU chat fallback: timeout');
+      debugPrint('YuXin fallback: timeout');
     } catch (error) {
-      debugPrint('ECNU chat fallback: $error');
+      debugPrint('YuXin fallback: $error');
     }
 
     return CompanionReply(
-      text: _offlineReply(mode: mode, userInput: userInput),
+      text: _offlineReply(
+        mode: mode,
+        userInput: userInput,
+        responsePreference: responsePreference,
+        latestMoodEntry: latestMoodEntry,
+      ),
       memory: nextMemory,
     );
   }
@@ -123,150 +127,241 @@ class CompanionService {
     return (message['content'] as String? ?? '').trim();
   }
 
-  String _trimReply(String text) {
+  String _trimReply(String text, ResponsePreference preference) {
     final String normalized = text.replaceAll('\r\n', '\n').trim();
-    if (normalized.length <= 80) {
+    final int limit = preference.conciseReplies ? 70 : 140;
+    if (normalized.length <= limit) {
       return normalized;
     }
-    return '${normalized.substring(0, 80)}...';
+    return '${normalized.substring(0, limit)}...';
   }
 
   String _buildSystemPrompt({
     required CompanionMode mode,
     required UserMemory memory,
     required List<ChatMessage> recentMessages,
+    required ResponsePreference responsePreference,
+    required MoodEntry? latestMoodEntry,
   }) {
-    final String persona = _personaHint(mode);
-    final String memorySummary = memory.lastMoodSummary.isEmpty
-        ? ''
-        : '你记得用户最近的状态：${memory.lastMoodSummary}\n';
-    final String recentSummary = recentMessages
+    final StringBuffer buffer = StringBuffer()
+      ..writeln(_personaHint(mode))
+      ..writeln(
+        'Reply in Chinese. Be warm, steady, and emotionally safe. Do not diagnose, lecture, or replace professional help.',
+      )
+      ..writeln(
+        responsePreference.quietCompanionship
+            ? 'Lead with empathy before guidance.'
+            : 'You may answer the core point more directly.',
+      )
+      ..writeln(
+        responsePreference.actionableAdvice
+            ? 'If the user clearly asks for help, offer one light, concrete next step.'
+            : 'Avoid step-by-step advice unless the user directly asks for it.',
+      )
+      ..writeln(
+        responsePreference.conciseReplies
+            ? 'Keep replies around 45 to 80 Chinese characters.'
+            : 'Keep replies around 60 to 120 Chinese characters.',
+      )
+      ..writeln(
+        responsePreference.gentleTone
+            ? 'Use soft language, not commanding language.'
+            : 'Keep the tone natural and sincere.',
+      );
+
+    if (responsePreference.nightSoftness && mode == CompanionMode.night) {
+      buffer.writeln('In late-night mode, respond even more softly and slowly.');
+    }
+
+    if (memory.lastMoodSummary.isNotEmpty) {
+      buffer.writeln('Recent emotional pattern: ${memory.lastMoodSummary}');
+    }
+    if (memory.triggers.isNotEmpty) {
+      buffer.writeln('Frequent stress themes: ${memory.triggers.join(', ')}');
+    }
+    if (memory.comfortTopics.isNotEmpty) {
+      buffer.writeln('Things that help them settle: ${memory.comfortTopics.join(', ')}');
+    }
+    if (latestMoodEntry != null) {
+      buffer.writeln('Latest mood check-in: ${latestMoodEntry.mood.label}.');
+      if (latestMoodEntry.note.trim().isNotEmpty) {
+        buffer.writeln('Mood note: ${latestMoodEntry.note.trim()}');
+      }
+    }
+
+    final Iterable<String> latestUserMessages = recentMessages
         .where((ChatMessage item) => item.sender == Sender.user)
-        .take(3)
-        .map((ChatMessage item) => item.text)
-        .join('；');
+        .take(4)
+        .map((ChatMessage item) => item.text);
+    if (latestUserMessages.isNotEmpty) {
+      buffer.writeln('Recent user lines: ${latestUserMessages.join(' ; ')}');
+    }
 
-    final String contextBlock = recentSummary.isEmpty ? '' : '用户最近说过：$recentSummary\n';
-
-    return '''
-$persona
-请用中文回复，20到80字，先共情再轻微疏导，不说教，不下诊断。
-${memorySummary}${contextBlock}如果用户只是倾诉，就先接住情绪；如果用户明确求助，再给一个轻量可执行的小建议。
-'''.trim();
+    return buffer.toString().trim();
   }
 
   String _personaHint(CompanionMode mode) {
     switch (mode) {
       case CompanionMode.general:
-        return '你是温柔、简短、有共情力的情绪陪伴助手。';
+        return 'You are a warm, emotionally attuned everyday support companion.';
       case CompanionMode.teen:
-        return '你是温柔耐心、懂学生压力的大姐姐型陪伴助手。';
+        return 'You are a patient, steady support companion for teenage stress and school pressure.';
       case CompanionMode.workplace:
-        return '你是成熟通透、懂职场疲惫的陪伴助手。';
+        return 'You are a grounded support companion for burnout, meetings, and work pressure.';
       case CompanionMode.night:
-        return '你是安静治愈、适合深夜低落时陪伴的助手。';
+        return 'You are a quiet late-night companion for insomnia, loneliness, and overthinking.';
     }
   }
 
-  UserMemory _updateMemory(UserMemory memory, String input) {
+  UserMemory _updateMemory(
+    UserMemory memory,
+    String input,
+    MoodEntry? latestMoodEntry,
+  ) {
     final String text = input.trim();
     final List<String> nextTriggers = <String>{
       ...memory.triggers,
       ..._collectTriggers(text),
-    }.take(5).toList();
+    }.take(6).toList();
     final List<String> nextPreferences = <String>{
       ...memory.preferences,
       ..._collectPreferences(text),
-    }.take(5).toList();
+    }.take(6).toList();
+    final List<String> nextComfortTopics = <String>{
+      ...memory.comfortTopics,
+      ..._collectComfortTopics(text),
+      if (latestMoodEntry != null && latestMoodEntry.mood == MoodType.hopeful) 'small signs of hope',
+    }.take(6).toList();
 
     return memory.copyWith(
       triggers: nextTriggers,
       preferences: nextPreferences,
-      lastMoodSummary: _summarizeMood(text),
+      comfortTopics: nextComfortTopics,
+      lastMoodSummary: _summarizeMood(text, latestMoodEntry),
       updatedAt: DateTime.now(),
     );
   }
 
   List<String> _collectTriggers(String input) {
     final Map<String, List<String>> mapping = <String, List<String>>{
-      '学业压力': <String>['考试', '成绩', '作业', '学校', '上课'],
-      '校园关系': <String>['同学', '老师', '朋友', '宿舍'],
-      '亲子沟通': <String>['爸妈', '父母', '家里'],
-      '工作焦虑': <String>['上班', '工作', '开会', '领导', '同事', '加班'],
-      '睡眠困扰': <String>['睡不着', '失眠', '半夜'],
-      '情绪低落': <String>['难过', '委屈', '崩溃', '压抑', '孤独'],
+      'study pressure': <String>['exam', 'grade', 'homework', 'school', 'class'],
+      'friendship stress': <String>['friend', 'classmate', 'teacher', 'dorm'],
+      'family tension': <String>['mom', 'dad', 'parents', 'home'],
+      'work stress': <String>['work', 'office', 'meeting', 'boss', 'coworker', 'overtime'],
+      'sleep trouble': <String>['sleep', 'insomnia', 'late night'],
+      'low mood': <String>['sad', 'hurt', 'breakdown', 'empty', 'alone'],
     };
 
     return mapping.entries
-        .where((MapEntry<String, List<String>> item) {
-          return item.value.any(input.contains);
-        })
+        .where((MapEntry<String, List<String>> item) => item.value.any(input.toLowerCase().contains))
         .map((MapEntry<String, List<String>> item) => item.key)
         .toList();
   }
 
   List<String> _collectPreferences(String input) {
     final Map<String, List<String>> mapping = <String, List<String>>{
-      '想被安静陪伴': <String>['只是想说说', '陪陪我', '听我说'],
-      '想要实用建议': <String>['怎么办', '建议', '怎么做'],
-      '偏好慢节奏安抚': <String>['睡不着', '好累', '不想说太多'],
+      'wants quiet company first': <String>['just listen', 'stay with me', 'hear me out'],
+      'wants practical ideas': <String>['what should i do', 'advice', 'how do i'],
+      'needs low-pressure replies': <String>['too tired', 'cannot sleep', 'do not want too much'],
     };
 
+    final String lowered = input.toLowerCase();
     return mapping.entries
-        .where((MapEntry<String, List<String>> item) {
-          return item.value.any(input.contains);
-        })
+        .where((MapEntry<String, List<String>> item) => item.value.any(lowered.contains))
         .map((MapEntry<String, List<String>> item) => item.key)
         .toList();
   }
 
-  String _summarizeMood(String input) {
-    if (input.contains('焦虑') || input.contains('慌')) {
-      return '最近更容易焦虑紧绷。';
+  List<String> _collectComfortTopics(String input) {
+    final Map<String, List<String>> mapping = <String, List<String>>{
+      'going outside for a short walk': <String>['walk', 'outside', 'fresh air'],
+      'resting quietly': <String>['rest', 'lie down', 'sleep'],
+      'having someone nearby': <String>['stay with me', 'talk with me', 'company'],
+      'stepping away for a moment': <String>['leave for a bit', 'hide', 'get away'],
+    };
+
+    final String lowered = input.toLowerCase();
+    return mapping.entries
+        .where((MapEntry<String, List<String>> item) => item.value.any(lowered.contains))
+        .map((MapEntry<String, List<String>> item) => item.key)
+        .toList();
+  }
+
+  String _summarizeMood(String input, MoodEntry? latestMoodEntry) {
+    if (latestMoodEntry != null) {
+      switch (latestMoodEntry.mood) {
+        case MoodType.calm:
+          return 'They have been trying to stay steady and may want a little quiet space.';
+        case MoodType.tired:
+          return 'They have been worn down and need more rest than pressure.';
+        case MoodType.anxious:
+          return 'They have been tense and their mind has been moving too fast.';
+        case MoodType.overwhelmed:
+          return 'They have been carrying too much and need less weight first.';
+        case MoodType.low:
+          return 'They have been low and need gentleness more than fixing.';
+        case MoodType.hopeful:
+          return 'They are still tired, but some small hope has started to return.';
+      }
     }
-    if (input.contains('难过') || input.contains('委屈')) {
-      return '最近积压了不少委屈和难过。';
+
+    final String lowered = input.toLowerCase();
+    if (lowered.contains('anxious') || lowered.contains('panic')) {
+      return 'They have been more anxious and tightly wound lately.';
     }
-    if (input.contains('累') || input.contains('疲惫')) {
-      return '最近处在明显的疲惫状态。';
+    if (lowered.contains('sad') || lowered.contains('hurt')) {
+      return 'They have been carrying hurt and sadness lately.';
     }
-    if (input.contains('孤独') || input.contains('失眠')) {
-      return '最近更需要安静的陪伴和安抚。';
+    if (lowered.contains('tired') || lowered.contains('burned out')) {
+      return 'They have been very tired and depleted lately.';
     }
-    return '最近有些情绪堵在心里，想找个安全的出口。';
+    if (lowered.contains('alone') || lowered.contains('insomnia')) {
+      return 'They have been needing quiet company and stability lately.';
+    }
+    return 'They have been holding unspoken emotion inside for a while.';
   }
 
   String _offlineReply({
     required CompanionMode mode,
     required String userInput,
+    required ResponsePreference responsePreference,
+    required MoodEntry? latestMoodEntry,
   }) {
-    final bool asksAdvice = userInput.contains('怎么办') ||
-        userInput.contains('怎么做') ||
-        userInput.contains('建议');
-    final bool tired = userInput.contains('累') ||
-        userInput.contains('烦') ||
-        userInput.contains('压抑');
+    final String lowered = userInput.toLowerCase();
+    final bool asksAdvice = lowered.contains('what should i do') ||
+        lowered.contains('how do i') ||
+        lowered.contains('advice');
+    final bool tired = lowered.contains('tired') ||
+        lowered.contains('exhausted') ||
+        lowered.contains('drained');
+    final String moodLead = latestMoodEntry == null
+        ? ''
+        : 'I noticed your latest check-in was "${latestMoodEntry.mood.label}". ';
+
+    final String adviceTail = responsePreference.actionableAdvice && asksAdvice
+        ? 'Try shrinking the problem down to the next tiny step instead of solving all of it at once.'
+        : 'You do not have to tidy all of this up at once. You can give me the hardest part first.';
 
     switch (mode) {
       case CompanionMode.general:
-        if (asksAdvice) {
-          return '我懂你现在很乱。先只处理最刺痛你的那一件，小步走，会比硬撑轻一点。';
-        }
         return tired
-            ? '你已经撑了很久了，先别急着要求自己马上好起来，我陪你慢慢松一口气。'
-            : '我在认真听，你可以把没说完的那部分也交给我。';
+            ? '${moodLead}You have been carrying a lot. Take one softer breath before asking yourself for anything else.'
+            : '$moodLead$adviceTail';
       case CompanionMode.teen:
         return asksAdvice
-            ? '你已经很努力了。先把最担心的一点拆小，今天只完成眼前一步就够了。'
-            : '这种委屈和压力压在学生身上，真的会很闷。你不用急着懂事，先让我陪你缓一缓。';
+            ? '${moodLead}You are already trying hard. Pick the smallest next step and let that be enough for today.'
+            : '${moodLead}This kind of pressure feels huge when you are still in it. You do not need to act okay for me.';
       case CompanionMode.workplace:
         return asksAdvice
-            ? '你不是不行，是被消耗太久了。先把最急的事和最耗你的情绪分开，会轻一点。'
-            : '职场里的拉扯最磨人，你会累很正常。先把呼吸放慢，我陪你把这团乱麻理一理。';
+            ? '${moodLead}You are not failing. You sound overused. Separate the urgent task from the emotional weight first.'
+            : '${moodLead}Work stress can grind people down quietly. It makes sense that you are tired.';
       case CompanionMode.night:
-        return asksAdvice
-            ? '先别逼自己立刻想通。喝口温水，放下手机一分钟，再把最堵的念头告诉我。'
-            : '夜里情绪会被放大，我知道。你先靠一会儿，我会一直在这儿陪你。';
+        if (responsePreference.nightSoftness) {
+          return asksAdvice
+              ? '${moodLead}Do not force a life answer tonight. Drink some water, put the phone down for one minute, then tell me the most stuck sentence.'
+              : '${moodLead}Night makes feelings louder. You do not need to get better right now. I can stay here with you.';
+        }
+        return '$moodLead$adviceTail';
     }
   }
 }
